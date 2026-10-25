@@ -10,7 +10,6 @@ import asyncio
 # ================= KONFIGURASI =================
 TOKEN = os.getenv("DISCORD_TOKEN") 
 HARGA_PER_AKUN = 100 
-NAMA_KATEGORI_TIKET = "TIKET ORDER" 
 # ===============================================
 
 class RobloxStoreBot(commands.Bot):
@@ -158,12 +157,11 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         if jumlah_beli > stok_tersedia:
             return await interaction.response.send_message(f"❌ Gagal! Stok tidak cukup. Sisa stok: **{stok_tersedia}**", ephemeral=True)
 
-        # KUNCI BIAR GA STUCK: Kasih ephemeral loading bentar
+        # Notif loading private (cuma buyer yang liat)
         await interaction.response.send_message("⏳ Memproses tiket...", ephemeral=True)
 
         guild = interaction.guild
         buyer = interaction.user
-        panel_channel = interaction.channel # Ambil channel tempat panel berada
 
         with open(bot.config_file, "r") as f:
             config = json.load(f)
@@ -171,25 +169,18 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         penjual_role_id = int(config.get("allowed_role_id"))
         buyer_role_id = config.get("buyer_role_id")
 
-        category = discord.utils.get(guild.categories, name=NAMA_KATEGORI_TIKET)
-        if not category:
-            category = await guild.create_category(NAMA_KATEGORI_TIKET)
-
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            buyer: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.get_role(penjual_role_id): discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            buyer: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            guild.get_role(penjual_role_id): discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
         }
 
-        # Bikin Tiket
         ticket_channel = await guild.create_text_channel(
             name=f"buy-cookies-{jumlah_beli}",
-            overwrites=overwrites,
-            category=category
+            overwrites=overwrites
         )
 
-        # Kasih role buyer
         if buyer_role_id:
             role_buyer = guild.get_role(int(buyer_role_id))
             if role_buyer and role_buyer not in buyer.roles:
@@ -211,14 +202,14 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         view_tiket = TicketView()
         await ticket_channel.send(content=f"{buyer.mention} | <@&{penjual_role_id}>", embed=embed_tiket, view=view_tiket)
         
-        # --- INI DIA YANG LO MAU: Kirim pesan konfirmasi ke channel panel ---
-        await panel_channel.send(f"✅ **Tiket berhasil dibuat!** {buyer.mention}, silakan klik channel {ticket_channel.mention} untuk masuk ke tiket pesananmu.")
-        
-        # Ubah pesan loading ephemeral jadi sukses
-        await interaction.edit_original_response(content=f"✅ Tiket berhasil dibuat: {ticket_channel.mention}")
+        # UBAH PESAN LOADING JADI SUKSES & OTOMATIS HILANG DALAM 60 DETIK
+        await interaction.edit_original_response(
+            content=f"✅ Tiket berhasil dibuat! Silakan klik channel <#{ticket_channel.id}> untuk masuk ke tiket pesananmu. *(Pesan ini akan hilang dalam 1 menit)*",
+            delete_after=60.0
+        )
         
         try:
-            await buyer.send(f"✅ Tiket pembelianmu sudah dibuat di server **{guild.name}**. Silakan cek channel {ticket_channel.mention}.")
+            await buyer.send(f"✅ Tiket pembelianmu sudah dibuat di server **{guild.name}**. Silakan cek channel <#{ticket_channel.id}>.")
         except:
             pass
 
