@@ -146,7 +146,7 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         if jumlah_beli > stok_tersedia:
             return await interaction.response.send_message(f"❌ Gagal! Stok tidak cukup. Sisa stok: **{stok_tersedia}**", ephemeral=True)
 
-        # Kasih notif loading private dulu
+        # 1. Kasih notif loading private
         await interaction.response.send_message("⏳ Memproses tiket...", ephemeral=True)
 
         guild = interaction.guild
@@ -165,6 +165,7 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
         }
 
+        # 2. Bikin Channel
         ticket_channel = await guild.create_text_channel(
             name=f"buy-cookies-{jumlah_beli}",
             overwrites=overwrites
@@ -191,12 +192,19 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         view_tiket = TicketView()
         await ticket_channel.send(content=f"{buyer.mention} | <@&{penjual_role_id}>", embed=embed_tiket, view=view_tiket)
         
-        # --- FIX: Jeda 1 detik baru edit pesan biar ga error di Discord ---
-        await asyncio.sleep(1) 
-        await interaction.edit_original_response(
-            content=f"✅ Tiket berhasil dibuat! Silakan klik channel <#{ticket_channel.id}>. *(Pesan ini akan hilang dalam 1 menit)*",
-            delete_after=60.0
-        )
+        # --- FIX TOTAL ANTI STUCK ---
+        try:
+            # 3. Hapus pesan "Memproses tiket..."
+            await interaction.delete_original_response() 
+            
+            # 4. Kirim pesan BARU (Private) yang isinya link tiket
+            await interaction.followup.send(
+                content=f"✅ Tiket berhasil dibuat! Silakan klik channel <#{ticket_channel.id}>. *(Pesan ini akan hilang dalam 1 menit)*",
+                ephemeral=True,
+                delete_after=60.0
+            )
+        except Exception as e:
+            print(f"Gagal update pesan: {e}")
         
         try:
             await buyer.send(f"✅ Tiket pembelianmu sudah dibuat di server **{guild.name}**. Silakan cek channel <#{ticket_channel.id}>.")
