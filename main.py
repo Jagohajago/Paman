@@ -97,28 +97,24 @@ def is_allowed(member: discord.Member):
         return False
     return discord.utils.get(member.roles, id=int(allowed_role_id)) is not None
 
-# ================= TOMBOL TUTUP TIKET (OTOMATIS TANPA FORM) =================
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="Tutup Tiket", emoji="🔒", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Validasi cuma Admin/Penjual
         if not is_allowed(interaction.user):
             return await interaction.response.send_message("🚫 Hanya Admin/Penjual yang bisa menutup tiket ini.", ephemeral=True)
         
         await interaction.response.send_message("🔒 Menutup tiket...", ephemeral=True)
         await asyncio.sleep(2)
         
-        # Cari buyer di channel
         buyer = None
         for target, overwrite in interaction.channel.overwrites.items():
             if isinstance(target, discord.Member) and not target.bot and target.id != interaction.user.id:
                  buyer = target
                  break
 
-        # Kirim DM template ke buyer
         if buyer:
             try:
                 await buyer.send(f"🔒 **Tiket Ditutup**\n\nTerima kasih telah order akun cookies disini!")
@@ -195,16 +191,11 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         view_tiket = TicketView()
         await ticket_channel.send(content=f"{buyer.mention} | <@&{penjual_role_id}>", embed=embed_tiket, view=view_tiket)
         
-        # --- FIX STUCK: Hapus pesan loading lama, kirim pesan baru yang otomatis hilang ---
-        try:
-            await interaction.delete_original_response() # Hapus "Memproses tiket..."
-        except:
-            pass
-            
-        await interaction.followup.send(
+        # --- FIX: Jeda 1 detik baru edit pesan biar ga error di Discord ---
+        await asyncio.sleep(1) 
+        await interaction.edit_original_response(
             content=f"✅ Tiket berhasil dibuat! Silakan klik channel <#{ticket_channel.id}>. *(Pesan ini akan hilang dalam 1 menit)*",
-            ephemeral=True,
-            delete_after=60.0 # Hilang dalam 60 detik
+            delete_after=60.0
         )
         
         try:
@@ -273,7 +264,6 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
     await interaction.response.send_message(f"✅ Panel stok berhasil dibuat di {channel.mention}.", ephemeral=True)
     await bot.update_panel()
 
-# COMMAND TUTUP (LANGSUNG TANPA MODAL)
 @bot.tree.command(name="tutup", description="Tutup tiket pembelian ini")
 async def tutup_tiket(interaction: discord.Interaction):
     if not interaction.channel.name.startswith("buy-cookies-"):
