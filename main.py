@@ -7,21 +7,18 @@ import io
 import datetime
 
 # ================= KONFIGURASI =================
-# Token diambil dari Environment Variables di Railway
+# Token diambil dari Environment Variables di Hosting
 TOKEN = os.getenv("DISCORD_TOKEN") 
 # ===============================================
 
 class RobloxStoreBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=discord.Intents.all(), help_command=None)
-        # Path disesuaikan buat Railway Volume biar data ga ilang pas restart
-        self.db_file = "/app/data/accounts.json"
-        self.config_file = "/app/data/config.json"
+        # Path biasa (tanpa /app/data) biar aman di Bot-Hosting
+        self.db_file = "accounts.json"
+        self.config_file = "config.json"
 
     async def setup_hook(self):
-        # Bikin folder data otomatis kalau belum ada
-        os.makedirs("/app/data", exist_ok=True)
-
         # Bikin file database kalau belum ada
         if not os.path.exists(self.db_file):
             with open(self.db_file, "w") as f:
@@ -74,7 +71,7 @@ class RobloxStoreBot(commands.Bot):
         gif_url = config.get("gif_available") if stock > 0 else config.get("gif_empty")
         buy_link = config.get("buy_link", "https://discord.com")
         
-        # Desain Panel (Mirip contoh Zzz Solve)
+        # Desain Panel
         embed = discord.Embed(
             title="🛒 **ROBLOX STORE — STOCK PANEL**",
             description="*Cek ketersediaan akun secara realtime di bawah ini!*",
