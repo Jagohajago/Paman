@@ -19,7 +19,6 @@ class RobloxStoreBot(commands.Bot):
         self.config_file = "config.json"
 
     async def setup_hook(self):
-        # Bikin file database & config kalau belum ada
         if not os.path.exists(self.db_file):
             with open(self.db_file, "w") as f:
                 json.dump([], f)
@@ -33,9 +32,9 @@ class RobloxStoreBot(commands.Bot):
                     "role_locked": False,
                 }, f, indent=4)
 
-        # Daftarin tombol biar ga error pas bot restart
+        # Daftarin view tombol biar tetep idup pas bot restart
         bot.add_view(PanelView())
-
+        
         await self.tree.sync()
         print("✅ Slash commands disync!")
 
@@ -64,6 +63,7 @@ class RobloxStoreBot(commands.Bot):
             accounts = json.load(f)
             stock = len([a for a in accounts if a["status"] == "available"])
 
+        # Bikin format waktu WIB
         now_utc = datetime.datetime.utcnow()
         now_wib = now_utc + datetime.timedelta(hours=7)
         
@@ -98,6 +98,7 @@ class RobloxStoreBot(commands.Bot):
 
         view = PanelView()
 
+        # Cari & Edit panel lama biar ga spam chat
         async for msg in channel.history(limit=20):
             if msg.author.id == self.user.id and msg.embeds and "Sisa Stock akun cookies roblox" in msg.embeds[0].title:
                 await msg.edit(embed=embed, view=view)
@@ -146,19 +147,18 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         guild = interaction.guild
         buyer = interaction.user
 
-        # Ambil config buat role penjual & buyer
         with open(bot.config_file, "r") as f:
             config = json.load(f)
             
         penjual_role_id = int(config.get("allowed_role_id"))
         buyer_role_id = config.get("buyer_role_id")
 
-        # Bikin Overwrites (Permission Channel)
+        # Bikin Overwrites Permission Channel
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            buyer: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.get_role(penjual_role_id): discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            guild.default_role: discord.PermissionOverwrite(read_messages=False), # Orang lain gabisa liat
+            buyer: discord.PermissionOverwrite(read_messages=True, send_messages=True), # Buyer bisa liat
+            guild.get_role(penjual_role_id): discord.PermissionOverwrite(read_messages=True, send_messages=True), # Penjual bisa liat
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True) # Bot bisa liat
         }
 
         # Bikin Channel Tiket
@@ -168,7 +168,7 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
             category=interaction.channel.category
         )
 
-        # --- AUTO KASIH ROLE BUYER ---
+        # --- AUTO KASIH ROLE BUYER (CEK DULU) ---
         if buyer_role_id:
             role_buyer = guild.get_role(int(buyer_role_id))
             if role_buyer:
@@ -192,12 +192,13 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
             color=0x2ecc71
         )
         
+        # Tombol Tutup Tiket (Cuma muncul di dalam channel tiket)
         view_tiket = discord.ui.View()
         view_tiket.add_item(discord.ui.Button(label="Tutup Tiket", emoji="🔒", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn"))
 
         await ticket_channel.send(content=f"{buyer.mention} | <@&{penjual_role_id}>", embed=embed_tiket, view=view_tiket)
         
-        # Kirim DM Notif
+        # Kirim DM Notif ke Buyer
         try:
             await buyer.send(f"✅ Tiket pembelianmu sudah dibuat di server **{guild.name}**. Silakan cek channel {ticket_channel.mention}.")
         except:
@@ -207,18 +208,10 @@ class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    # CUMA TOMBOL BELI DI PANEL STOK
     @discord.ui.button(label="Beli Akun", emoji="🛒", style=discord.ButtonStyle.success, custom_id="beli_akun_btn")
     async def beli_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BeliModal())
-
-    @discord.ui.button(label="Tutup Tiket", emoji="🔒", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
-    async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not is_allowed(interaction.user) and interaction.channel.name.startswith("buy-cookies-") == False:
-            return await interaction.response.send_message("🚫 Kamu tidak berhak menutup tiket ini.", ephemeral=True)
-
-        await interaction.response.send_message("🔒 Menutup tiket...", ephemeral=True)
-        await asyncio.sleep(2)
-        await interaction.channel.delete()
 
 # ================= COMMANDS =================
 
@@ -289,12 +282,14 @@ async def close_ticket(interaction: discord.Interaction):
     await interaction.response.send_message("🔒 Menutup tiket...", ephemeral=True)
     await asyncio.sleep(2)
     
+    # Cari buyer di dalam channel
     buyer = None
     for target, overwrite in interaction.channel.overwrites.items():
         if isinstance(target, discord.Member) and not target.bot and target.id != interaction.user.id:
              buyer = target
              break
 
+    # Kirim DM ke buyer sebelum channel dihapus
     if buyer:
         try:
             await buyer.send(f"🔒 Tiket pembelianmu di server **{interaction.guild.name}** telah ditutup oleh Admin. Terima kasih!")
@@ -406,6 +401,13 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
     
     await interaction.followup.send(embed=res_embed, ephemeral=True)
     await bot.update_panel()
+
+@bot.tree.command(name="stock", description="Cek stok akun (Bisa diakses publik)")
+async def cek_stock(interaction: discord.Interaction):
+    with open(bot.db_file, "r") as f:
+        accounts = json.load(f)
+    stok = len([a for a in accounts if a["status"] == "available"])
+    await interaction.response.send_message(f"📦 Stok saat ini: **{stok}** akun. Silakan cek channel panel untuk info detail.", ephemeral=True)
 
 if __name__ == "__main__":
     if not TOKEN:
