@@ -146,7 +146,12 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         buyer = interaction.user
 
         # --- 1. CEK APAKAH BUYER PUNYA TIKET AKTIF ---
-        existing_ticket = discord.utils.get(guild.channels, name=f"buy-cookies-{buyer.name.lower()}")
+        existing_ticket = None
+        for ch in guild.text_channels:
+            if ch.name.startswith("buy-cookies-") and ch.overwrites_for(buyer).view_channel:
+                existing_ticket = ch
+                break
+                
         if existing_ticket:
             return await interaction.response.send_message(f"❌ Kamu masih punya tiket yang aktif di {existing_ticket.mention}. Selesaikan tiket itu dulu sebelum membuat yang baru!", ephemeral=True)
 
@@ -206,7 +211,7 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         view_tiket = TicketView()
         await ticket_channel.send(content=f"{buyer.mention} | <@&{penjual_role_id}>", embed=embed_tiket, view=view_tiket)
         
-        # Hapus pesan loading & kirim pesan sukses
+        # --- FIX: CUMA KIRIM PESAN DI CHANNEL PANEL (TANPA PM) ---
         try:
             await interaction.delete_original_response() 
             await interaction.followup.send(
@@ -216,11 +221,6 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
             )
         except Exception as e:
             print(f"Gagal update pesan: {e}")
-        
-        try:
-            await buyer.send(f"✅ Tiket pembelianmu sudah dibuat di server **{guild.name}**. Silakan cek channel <#{ticket_channel.id}>.")
-        except:
-            pass
 
 class PanelView(discord.ui.View):
     def __init__(self):
