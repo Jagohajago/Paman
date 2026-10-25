@@ -30,6 +30,7 @@ class RobloxStoreBot(commands.Bot):
                     "buyer_role_id": None,
                     "panel_channel_id": None, 
                     "role_locked": False,
+                    "ticket_count": 0 # Buat nyimpen nomor urut tiket
                 }, f, indent=4)
 
         bot.add_view(PanelView())
@@ -97,6 +98,7 @@ def is_allowed(member: discord.Member):
         return False
     return discord.utils.get(member.roles, id=int(allowed_role_id)) is not None
 
+# ================= TOMBOL TUTUP TIKET =================
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -123,6 +125,7 @@ class TicketView(discord.ui.View):
 
         await interaction.channel.delete()
 
+# ================= FORM PEMBELIAN =================
 class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
     jumlah = discord.ui.TextInput(
         label="Jumlah Akun",
@@ -139,6 +142,15 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         if jumlah_beli <= 0:
             return await interaction.response.send_message("❌ Gagal! Minimal beli 1 akun.", ephemeral=True)
 
+        guild = interaction.guild
+        buyer = interaction.user
+
+        # --- 1. CEK APAKAH BUYER PUNYA TIKET AKTIF ---
+        existing_ticket = discord.utils.get(guild.channels, name=f"buy-cookies-{buyer.name.lower()}")
+        if existing_ticket:
+            return await interaction.response.send_message(f"❌ Kamu masih punya tiket yang aktif di {existing_ticket.mention}. Selesaikan tiket itu dulu sebelum membuat yang baru!", ephemeral=True)
+
+        # --- 2. CEK STOK ---
         with open(bot.db_file, "r") as f:
             accounts = json.load(f)
         stok_tersedia = len([a for a in accounts if a["status"] == "available"])
@@ -146,17 +158,19 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         if jumlah_beli > stok_tersedia:
             return await interaction.response.send_message(f"❌ Gagal! Stok tidak cukup. Sisa stok: **{stok_tersedia}**", ephemeral=True)
 
-        # 1. Kasih notif loading private
         await interaction.response.send_message("⏳ Memproses tiket...", ephemeral=True)
-
-        guild = interaction.guild
-        buyer = interaction.user
 
         with open(bot.config_file, "r") as f:
             config = json.load(f)
             
         penjual_role_id = int(config.get("allowed_role_id"))
         buyer_role_id = config.get("buyer_role_id")
+        
+        # --- 3. LOGIKA NOMOR URUT TIKET ---
+        ticket_count = config.get("ticket_count", 0) + 1
+        config["ticket_count"] = ticket_count
+        with open(bot.config_file, "w") as f:
+            json.dump(config, f, indent=4)
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -165,9 +179,9 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
         }
 
-        # 2. Bikin Channel
+        # Bikin channel dengan nomor urut
         ticket_channel = await guild.create_text_channel(
-            name=f"buy-cookies-{jumlah_beli}",
+            name=f"buy-cookies-{ticket_count}",
             overwrites=overwrites
         )
 
@@ -192,12 +206,9 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         view_tiket = TicketView()
         await ticket_channel.send(content=f"{buyer.mention} | <@&{penjual_role_id}>", embed=embed_tiket, view=view_tiket)
         
-        # --- FIX TOTAL ANTI STUCK ---
+        # Hapus pesan loading & kirim pesan sukses
         try:
-            # 3. Hapus pesan "Memproses tiket..."
             await interaction.delete_original_response() 
-            
-            # 4. Kirim pesan BARU (Private) yang isinya link tiket
             await interaction.followup.send(
                 content=f"✅ Tiket berhasil dibuat! Silakan klik channel <#{ticket_channel.id}>. *(Pesan ini akan hilang dalam 1 menit)*",
                 ephemeral=True,
