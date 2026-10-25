@@ -5,38 +5,37 @@ import json
 import os
 import io
 import datetime
+import asyncio
 
 # ================= KONFIGURASI =================
-# Token diambil dari Environment Variables di Hosting
 TOKEN = os.getenv("DISCORD_TOKEN") 
+HARGA_PER_AKUN = 100 
 # ===============================================
 
 class RobloxStoreBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=discord.Intents.all(), help_command=None)
-        # Path biasa (tanpa /app/data) biar aman di Bot-Hosting
         self.db_file = "accounts.json"
         self.config_file = "config.json"
 
     async def setup_hook(self):
-        # Bikin file database kalau belum ada
+        # Bikin file database & config kalau belum ada
         if not os.path.exists(self.db_file):
             with open(self.db_file, "w") as f:
                 json.dump([], f)
                 
-        # Bikin file config kalau belum ada
         if not os.path.exists(self.config_file):
             with open(self.config_file, "w") as f:
                 json.dump({
                     "allowed_role_id": None, 
+                    "buyer_role_id": None,
                     "panel_channel_id": None, 
                     "role_locked": False,
-                    "gif_available": "https://media.tenor.com/On7KVXhzml4AAAAj/loading-gif.gif", 
-                    "gif_empty": "https://media.tenor.com/On7KVXhzml4AAAAj/loading-gif.gif", 
-                    "buy_link": "https://discord.com" 
                 }, f, indent=4)
 
-        # Sync slash commands ke Discord
+        # Daftarin tombol biar ga error pas bot restart
+        bot.add_view(PanelView())
+
         await self.tree.sync()
         print("✅ Slash commands disync!")
 
@@ -50,7 +49,6 @@ class RobloxStoreBot(commands.Bot):
         await self.update_panel()
 
     async def update_panel(self):
-        """Update embed panel stok di channel yang ditentukan"""
         with open(self.config_file, "r") as f:
             config = json.load(f)
             
@@ -62,52 +60,46 @@ class RobloxStoreBot(commands.Bot):
         if not channel:
             return
 
-        # Hitung stok
         with open(self.db_file, "r") as f:
             accounts = json.load(f)
             stock = len([a for a in accounts if a["status"] == "available"])
 
-        # Ambil URL GIF & Link Beli dari config
-        gif_url = config.get("gif_available") if stock > 0 else config.get("gif_empty")
-        buy_link = config.get("buy_link", "https://discord.com")
+        now_utc = datetime.datetime.utcnow()
+        now_wib = now_utc + datetime.timedelta(hours=7)
         
-        # Desain Panel
+        hari = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][now_wib.weekday()]
+        waktu_sekarang = now_wib.strftime(f"{hari}, %d %B %Y - %H:%M WIB")
+        
         embed = discord.Embed(
-            title="🛒 **ROBLOX STORE — STOCK PANEL**",
-            description="*Cek ketersediaan akun secara realtime di bawah ini!*",
+            title="📦 **Sisa Stock akun cookies roblox**",
             color=0x5865F2 
         )
-        
-        if gif_url:
-            embed.set_image(url=gif_url)
             
         embed.add_field(
-            name="📦 **Stok Tersedia**", 
+            name="📊 **Tersedia**", 
             value=f"```fix\n{stock} Akun\n```", 
-            inline=True
+            inline=False
         )
+
         embed.add_field(
-            name="🔒 **Status**", 
-            value=f"```fix\n{'✅ TERSEDIA' if stock > 0 else '❌ HABIS'}\n```", 
-            inline=True
+            name="💰 **Harga**", 
+            value=f"`{HARGA_PER_AKUN} Perak / Akun`", 
+            inline=False
         )
         
-        embed.set_footer(text="Powered by Roblox Store", icon_url=self.user.display_avatar.url)
-        embed.timestamp = datetime.datetime.now()
-
-        # Bikin Tombol
-        view = discord.ui.View()
-        btn = discord.ui.Button(
-            label="Beli Akun / Hubungi Admin", 
-            emoji="🛒", 
-            style=discord.ButtonStyle.link, 
-            url=buy_link 
+        embed.add_field(
+            name="🕒 **Terakhir Diperbarui**",
+            value=f"`{waktu_sekarang}`",
+            inline=False
         )
-        view.add_item(btn)
+        
+        embed.set_footer(text="Klik tombol di bawah untuk membeli.", icon_url=self.user.display_avatar.url)
+        embed.timestamp = now_wib
 
-        # Cari & Edit Panel Lama biar ga spam chat
+        view = PanelView()
+
         async for msg in channel.history(limit=20):
-            if msg.author.id == self.user.id and msg.embeds and "STOCK PANEL" in msg.embeds[0].title:
+            if msg.author.id == self.user.id and msg.embeds and "Sisa Stock akun cookies roblox" in msg.embeds[0].title:
                 await msg.edit(embed=embed, view=view)
                 return
         await channel.send(embed=embed, view=view)
@@ -123,6 +115,111 @@ def is_allowed(member: discord.Member):
         return False
     return discord.utils.get(member.roles, id=int(allowed_role_id)) is not None
 
+# ================= INTERAKSI TOMBOL & FORM =================
+class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
+    jumlah = discord.ui.TextInput(
+        label="Jumlah Akun",
+        placeholder="Masukkan angka (Contoh: 1)",
+        required=True,
+        style=discord.TextStyle.short
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validasi input wajib angka
+        if not self.jumlah.value.isdigit():
+            return await interaction.response.send_message("❌ Gagal! Kamu harus memasukkan angka murni.", ephemeral=True)
+        
+        jumlah_beli = int(self.jumlah.value)
+        if jumlah_beli <= 0:
+            return await interaction.response.send_message("❌ Gagal! Minimal beli 1 akun.", ephemeral=True)
+
+        # Cek stok
+        with open(bot.db_file, "r") as f:
+            accounts = json.load(f)
+        stok_tersedia = len([a for a in accounts if a["status"] == "available"])
+
+        if jumlah_beli > stok_tersedia:
+            return await interaction.response.send_message(f"❌ Gagal! Stok tidak cukup. Sisa stok: **{stok_tersedia}**", ephemeral=True)
+
+        await interaction.response.send_message("⏳ Sedang membuat tiket private...", ephemeral=True)
+
+        guild = interaction.guild
+        buyer = interaction.user
+
+        # Ambil config buat role penjual & buyer
+        with open(bot.config_file, "r") as f:
+            config = json.load(f)
+            
+        penjual_role_id = int(config.get("allowed_role_id"))
+        buyer_role_id = config.get("buyer_role_id")
+
+        # Bikin Overwrites (Permission Channel)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            buyer: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.get_role(penjual_role_id): discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+
+        # Bikin Channel Tiket
+        ticket_channel = await guild.create_text_channel(
+            name=f"buy-cookies-{jumlah_beli}",
+            overwrites=overwrites,
+            category=interaction.channel.category
+        )
+
+        # --- AUTO KASIH ROLE BUYER ---
+        if buyer_role_id:
+            role_buyer = guild.get_role(int(buyer_role_id))
+            if role_buyer:
+                if role_buyer not in buyer.roles:
+                    try:
+                        await buyer.add_roles(role_buyer)
+                        print(f"Role {role_buyer.name} diberikan ke {buyer.name}")
+                    except Exception as e:
+                        print(f"Gagal ngasih role buyer: {e}")
+                else:
+                    print(f"{buyer.name} udah punya role buyer, skip.")
+
+        # Kirim pesan di dalam tiket
+        embed_tiket = discord.Embed(
+            title="🧾 Tiket Pembelian",
+            description=f"Halo {buyer.mention}, terima kasih sudah memesan!\n\n"
+                        f"📦 **Jumlah:** {jumlah_beli} Akun\n"
+                        f"💰 **Total Harga:** {jumlah_beli * HARGA_PER_AKUN} Perak\n\n"
+                        f"Silakan tunggu Admin/Penjual untuk memproses pesananmu.\n"
+                        f"*(Admin akan mengirimkan akun setelah pembayaran dikonfirmasi).*",
+            color=0x2ecc71
+        )
+        
+        view_tiket = discord.ui.View()
+        view_tiket.add_item(discord.ui.Button(label="Tutup Tiket", emoji="🔒", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn"))
+
+        await ticket_channel.send(content=f"{buyer.mention} | <@&{penjual_role_id}>", embed=embed_tiket, view=view_tiket)
+        
+        # Kirim DM Notif
+        try:
+            await buyer.send(f"✅ Tiket pembelianmu sudah dibuat di server **{guild.name}**. Silakan cek channel {ticket_channel.mention}.")
+        except:
+            pass
+
+class PanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Beli Akun", emoji="🛒", style=discord.ButtonStyle.success, custom_id="beli_akun_btn")
+    async def beli_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(BeliModal())
+
+    @discord.ui.button(label="Tutup Tiket", emoji="🔒", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
+    async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_allowed(interaction.user) and interaction.channel.name.startswith("buy-cookies-") == False:
+            return await interaction.response.send_message("🚫 Kamu tidak berhak menutup tiket ini.", ephemeral=True)
+
+        await interaction.response.send_message("🔒 Menutup tiket...", ephemeral=True)
+        await asyncio.sleep(2)
+        await interaction.channel.delete()
+
 # ================= COMMANDS =================
 
 @bot.tree.command(name="setup", description="Set role penjual (HANYA BISA DILAKUKAN SEKALI)")
@@ -135,7 +232,7 @@ async def setup_role(interaction: discord.Interaction, role: discord.Role):
         config = json.load(f)
 
     if config["role_locked"]:
-        return await interaction.response.send_message("🔒 Role sudah di-set sebelumnya dan **tidak bisa diubah lagi**.", ephemeral=True)
+        return await interaction.response.send_message("🔒 Role penjual sudah di-set sebelumnya dan **tidak bisa diubah lagi**.", ephemeral=True)
 
     config["allowed_role_id"] = role.id
     config["role_locked"] = True
@@ -144,13 +241,29 @@ async def setup_role(interaction: discord.Interaction, role: discord.Role):
         json.dump(config, f, indent=4)
 
     embed = discord.Embed(
-        title="✅ Setup Berhasil",
+        title="✅ Setup Penjual Berhasil",
         description=f"Role penjual dikunci ke: {role.mention}\n\n⚠️ **Role terkunci permanen.**",
         color=0x2ecc71
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@bot.tree.command(name="setrolebuyer", description="Set role yang otomatis didapat buyer saat beli")
+@app_commands.describe(role="Role pembeli (contoh: Buyyer Kue)")
+async def set_role_buyer(interaction: discord.Interaction, role: discord.Role):
+    if not is_allowed(interaction.user):
+        return await interaction.response.send_message("🚫 Kamu tidak punya role penjual yang sah.", ephemeral=True)
+
+    with open(bot.config_file, "r") as f:
+        config = json.load(f)
+        
+    config["buyer_role_id"] = role.id
+    with open(bot.config_file, "w") as f:
+        json.dump(config, f, indent=4)
+
+    await interaction.response.send_message(f"✅ Role Buyer berhasil di-set ke: {role.mention}. Buyer baru akan otomatis dapat role ini.", ephemeral=True)
+
 @bot.tree.command(name="setchannel", description="Set channel untuk info stok panel")
+@app_commands.describe(channel="Pilih channel untuk menampilkan panel stok")
 async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     if not is_allowed(interaction.user):
         return await interaction.response.send_message("🚫 Kamu tidak punya role penjual yang sah.", ephemeral=True)
@@ -162,27 +275,33 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
     with open(bot.config_file, "w") as f:
         json.dump(config, f, indent=4)
 
-    await interaction.response.send_message(f"✅ Panel stok di-set ke {channel.mention}.", ephemeral=True)
+    await interaction.response.send_message(f"✅ Panel stok berhasil dibuat di {channel.mention}.", ephemeral=True)
     await bot.update_panel()
 
-@bot.tree.command(name="setpanel", description="Set GIF animasi dan link tombol untuk panel")
-@app_commands.describe(gif_tersedia="Link .gif stok ada", gif_habis="Link .gif stok habis", link_beli="Link WA/Web pas tombol diklik")
-async def set_panel(interaction: discord.Interaction, gif_tersedia: str, gif_habis: str, link_beli: str):
+@bot.tree.command(name="close", description="Tutup tiket pembelian ini")
+async def close_ticket(interaction: discord.Interaction):
+    if not interaction.channel.name.startswith("buy-cookies-"):
+        return await interaction.response.send_message("❌ Command ini hanya bisa dipakai di dalam channel tiket.", ephemeral=True)
+
     if not is_allowed(interaction.user):
-        return await interaction.response.send_message("🚫 Kamu tidak punya role penjual yang sah.", ephemeral=True)
-        
-    with open(bot.config_file, "r") as f:
-        config = json.load(f)
-        
-    config["gif_available"] = gif_tersedia
-    config["gif_empty"] = gif_habis
-    config["buy_link"] = link_beli
-    
-    with open(bot.config_file, "w") as f:
-        json.dump(config, f, indent=4)
+        return await interaction.response.send_message("🚫 Hanya penjual yang bisa menutup tiket manual lewat command ini.", ephemeral=True)
 
-    await interaction.response.send_message("✅ Pengaturan GIF & Link Tombol berhasil disimpan! Panel telah diupdate.", ephemeral=True)
-    await bot.update_panel()
+    await interaction.response.send_message("🔒 Menutup tiket...", ephemeral=True)
+    await asyncio.sleep(2)
+    
+    buyer = None
+    for target, overwrite in interaction.channel.overwrites.items():
+        if isinstance(target, discord.Member) and not target.bot and target.id != interaction.user.id:
+             buyer = target
+             break
+
+    if buyer:
+        try:
+            await buyer.send(f"🔒 Tiket pembelianmu di server **{interaction.guild.name}** telah ditutup oleh Admin. Terima kasih!")
+        except:
+            pass
+
+    await interaction.channel.delete()
 
 @bot.tree.command(name="inputakun", description="Tambah akun Roblox (format: user:pass:cookie)")
 @app_commands.describe(akun="Format: username:password:cookies")
@@ -287,13 +406,6 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
     
     await interaction.followup.send(embed=res_embed, ephemeral=True)
     await bot.update_panel()
-
-@bot.tree.command(name="stock", description="Cek stok akun (Bisa diakses publik)")
-async def cek_stock(interaction: discord.Interaction):
-    with open(bot.db_file, "r") as f:
-        accounts = json.load(f)
-    stok = len([a for a in accounts if a["status"] == "available"])
-    await interaction.response.send_message(f"📦 Stok saat ini: **{stok}** akun. Silakan cek channel panel untuk info detail.", ephemeral=True)
 
 if __name__ == "__main__":
     if not TOKEN:
