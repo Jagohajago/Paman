@@ -64,7 +64,6 @@ class RobloxStoreBot(commands.Bot):
         with open(self.db_file, "r") as f:
             accounts = json.load(f)
             
-        # Hitung stok per penjual
         stok_mcrypt = len([a for a in accounts if a["status"] == "available" and a.get("seller") == "Mcrypt"])
         stok_bx = len([a for a in accounts if a["status"] == "available" and a.get("seller") == "Bx"])
         stok_ame = len([a for a in accounts if a["status"] == "available" and a.get("seller") == "Ame"])
@@ -103,16 +102,24 @@ class RobloxStoreBot(commands.Bot):
 
 bot = RobloxStoreBot()
 
-# ================= HELPER VALIDASI USERNAME =================
+# ================= HELPER VALIDASI USERNAME (DIPERBAIKI) =================
 def get_seller_name(user_id, config):
     """Ngecek apakah ID Discord user ini terdaftar sebagai penjual"""
-    if config.get("seller_mcrypt_id") and str(user_id) == str(config["seller_mcrypt_id"]):
+    # Ubah ke string semua biar ga error tipe data
+    s_id = str(user_id)
+    if config.get("seller_mcrypt_id") and s_id == str(config["seller_mcrypt_id"]):
         return "Mcrypt"
-    if config.get("seller_bx_id") and str(user_id) == str(config["seller_bx_id"]):
+    if config.get("seller_bx_id") and s_id == str(config["seller_bx_id"]):
         return "Bx"
-    if config.get("seller_ame_id") and str(user_id) == str(config["seller_ame_id"]):
+    if config.get("seller_ame_id") and s_id == str(config["seller_ame_id"]):
         return "Ame"
     return None
+
+def is_owner(user_id, config):
+    """Cek apakah user ini owner (Anti error string/int)"""
+    if not config.get("owner_id"):
+        return False
+    return str(user_id) == str(config["owner_id"])
 
 # ================= FORM TUTUP TIKET =================
 class CloseTicketModal(discord.ui.Modal, title="Tutup Tiket"):
@@ -152,9 +159,8 @@ class TicketView(discord.ui.View):
             config = json.load(f)
             
         penjual = get_seller_name(interaction.user.id, config)
-        is_owner = (str(interaction.user.id) == str(config.get("owner_id")))
         
-        if not penjual and not is_owner:
+        if not penjual and not is_owner(interaction.user.id, config):
             return await interaction.response.send_message("🚫 Hanya Admin/Penjual yang bisa menutup tiket ini.", ephemeral=True)
         
         await interaction.response.send_modal(CloseTicketModal())
@@ -207,21 +213,19 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
         with open(bot.config_file, "w") as f:
             json.dump(config, f, indent=4)
 
-        # Ambil semua ID Penjual yang udah di-set buat dikasih akses ke tiket
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             buyer: discord.PermissionOverwrite(view_channel=True, send_messages=True),
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
         }
         
-        # Kasih akses ke Owner & Semua Penjual biar bisa buka tiket
         if config.get("owner_id"):
             owner_member = guild.get_member(int(config["owner_id"]))
             if owner_member: overwrites[owner_member] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
             
-        for seller_id in [config.get("seller_mcrypt_id"), config.get("seller_bx_id"), config.get("seller_ame_id")]:
-            if seller_id:
-                seller_member = guild.get_member(int(seller_id))
+        for seller_key in ["seller_mcrypt_id", "seller_bx_id", "seller_ame_id"]:
+            if config.get(seller_key):
+                seller_member = guild.get_member(int(config[seller_key]))
                 if seller_member: overwrites[seller_member] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
         ticket_channel = await guild.create_text_channel(
@@ -287,19 +291,17 @@ class InputAkunModal(discord.ui.Modal, title="Input Akun Roblox"):
             config = json.load(f)
             
         user_seller = get_seller_name(interaction.user.id, config)
-        is_owner = (str(interaction.user.id) == str(config.get("owner_id")))
+        owner_check = is_owner(interaction.user.id, config)
         
-        if not is_owner and not user_seller:
+        if not owner_check and not user_seller:
             return await interaction.response.send_message("❌ Kamu bukan penjual yang terdaftar!", ephemeral=True)
 
         nama_penjual = self.penjual.value.strip().capitalize()
         
-        # Validasi Nama Penjual (Harus sesuai pilihan)
         if nama_penjual not in ["Mcrypt", "Bx", "Ame"]:
             return await interaction.response.send_message("❌ Gagal! Nama penjual tidak valid. Pilih: Mcrypt, Bx, atau Ame.", ephemeral=True)
             
-        # Cek apakah dia mau input ke nama dia sendiri (Kecuali Owner)
-        if not is_owner and user_seller != nama_penjual:
+        if not owner_check and user_seller != nama_penjual:
             return await interaction.response.send_message(f"❌ Kamu terdaftar sebagai {user_seller}, gabisa input ke stok {nama_penjual}!", ephemeral=True)
 
         lines = self.akun.value.strip().split("\n")
@@ -383,7 +385,7 @@ async def set_seller(interaction: discord.Interaction, penjual: app_commands.Cho
     with open(bot.config_file, "r") as f:
         config = json.load(f)
 
-    if str(interaction.user.id) != str(config.get("owner_id")):
+    if not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya Owner yang bisa melakukan setup penjual.", ephemeral=True)
 
     config[penjual.value] = user.id
@@ -398,7 +400,7 @@ async def set_role_buyer(interaction: discord.Interaction, role: discord.Role):
     with open(bot.config_file, "r") as f:
         config = json.load(f)
         
-    if str(interaction.user.id) != str(config.get("owner_id")):
+    if not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya Owner yang bisa set role buyer.", ephemeral=True)
 
     config["buyer_role_id"] = role.id
@@ -413,7 +415,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
     with open(bot.config_file, "r") as f:
         config = json.load(f)
         
-    if str(interaction.user.id) != str(config.get("owner_id")):
+    if not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya Owner yang bisa set channel.", ephemeral=True)
         
     config["panel_channel_id"] = channel.id
@@ -432,9 +434,8 @@ async def tutup_tiket(interaction: discord.Interaction):
         config = json.load(f)
         
     penjual = get_seller_name(interaction.user.id, config)
-    is_owner = (str(interaction.user.id) == str(config.get("owner_id")))
 
-    if not penjual and not is_owner:
+    if not penjual and not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya penjual/owner yang bisa menutup tiket.", ephemeral=True)
 
     await interaction.response.send_modal(CloseTicketModal())
@@ -445,9 +446,8 @@ async def input_akun(interaction: discord.Interaction):
         config = json.load(f)
         
     penjual = get_seller_name(interaction.user.id, config)
-    is_owner = (str(interaction.user.id) == str(config.get("owner_id")))
 
-    if not penjual and not is_owner:
+    if not penjual and not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Kamu tidak punya akses untuk input akun.", ephemeral=True)
     
     await interaction.response.send_modal(InputAkunModal())
@@ -459,9 +459,8 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
         config = json.load(f)
         
     penjual = get_seller_name(interaction.user.id, config)
-    is_owner = (str(interaction.user.id) == str(config.get("owner_id")))
 
-    if not penjual and not is_owner:
+    if not penjual and not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Kamu tidak punya akses untuk gift akun.", ephemeral=True)
 
     await interaction.response.defer(ephemeral=True)
@@ -469,9 +468,6 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
     with open(bot.db_file, "r") as f:
         accounts = json.load(f)
 
-    # Kalau owner, dia bisa ambil dari stok siapa aja (tapi default ambil dari stok terbanyak)
-    # Di sini kita batasi: Kalau owner, kita suruh ketik pake command. Kalau penjual, ambil dari stok dia.
-    # Biar gampang, kalau Owner, kita ambil dari stok Mcrypt dulu (atau lo bisa modif sendiri nanti)
     target_seller = penjual if penjual else "Mcrypt"
 
     available_accs = [a for a in accounts if a["status"] == "available" and a.get("seller") == target_seller]
