@@ -33,7 +33,8 @@ class RobloxStoreBot(commands.Bot):
                     "ticket_count": 0,
                     "seller_mcrypt_id": None,
                     "seller_bx_id": None,
-                    "seller_ame_id": None
+                    "seller_ame_id": None,
+                    "total_sold": 0 # Counter akun terjual
                 }, f, indent=4)
 
         bot.add_view(PanelView())
@@ -69,6 +70,9 @@ class RobloxStoreBot(commands.Bot):
         stok_ame = len([a for a in accounts if a["status"] == "available" and a.get("seller") == "Ame"])
         total_stok = stok_mcrypt + stok_bx + stok_ame
 
+        # Ambil total akun terjual dari config
+        total_sold = config.get("total_sold", 0)
+
         now_utc = datetime.datetime.utcnow()
         now_wib = now_utc + datetime.timedelta(hours=7)
         
@@ -92,8 +96,11 @@ class RobloxStoreBot(commands.Bot):
         embed.add_field(name="👤 **Bx**", value=f"```fix\n{stok_bx} Akun\n```", inline=True)
         embed.add_field(name="👤 **Ame**", value=f"```fix\n{stok_ame} Akun\n```", inline=True)
         
-        embed.add_field(name="📊 **Total Stok**", value=f"`{total_stok} Akun`", inline=False)
-        embed.add_field(name="💰 **Harga**", value=f"`{HARGA_PER_AKUN} Perak / Akun`", inline=False)
+        # Info Terjual & Harga (Layout Baru)
+        embed.add_field(name="📊 **Total Stok**", value=f"`{total_stok} Akun`", inline=True)
+        embed.add_field(name="📦 **Akun Terjual**", value=f"`{total_sold} Akun`", inline=True)
+        embed.add_field(name="💰 **Harga**", value=f"`{HARGA_PER_AKUN} Perak / Akun`", inline=True)
+        
         embed.add_field(name="🕒 **Terakhir Diperbarui**", value=f"`{waktu_sekarang}`", inline=False)
         
         embed.set_footer(text="Klik tombol di bawah untuk membeli.", icon_url=self.user.display_avatar.url)
@@ -126,10 +133,11 @@ def format_harga(harga):
         return f"{formatted}K"
     return str(harga)
 
+# ================= FORM TUTUP TIKET (AUTO REASON) =================
 class CloseTicketModal(discord.ui.Modal, title="Tutup Tiket"):
     reason = discord.ui.TextInput(
         label="Alasan Penutupan",
-        placeholder="Contoh: Terima kasih telah order akun cookies disini!",
+        default="Account berhasil delivery, terimakasih telah berbelanja di Zzz Auto Solve!", # Otomatis keisi
         required=True,
         style=discord.TextStyle.paragraph
     )
@@ -469,11 +477,13 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
 
     to_gift = available_accs[:jumlah]
     
-    file_content = f"=== ROBLOX ACCOUNT DELIVERY ===\nSeller : {target_seller}\nBuyer  : {user.name} ({user.id})\nReason : {reason}\nJumlah : {jumlah}\nTanggal: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    # FORMAT BARU SESUAI REQUEST
+    file_content = "INFO USN:PW:COOKIES\n"
     for i, acc in enumerate(to_gift):
-        file_content += f"#{i+1}\nUsername : {acc['username']}\nPassword : {acc['password']}\nCookies  : {acc['cookies']}\n\n"
-    file_content += "=== JANGAN BAGIKAN DATA INI ===\n"
+        file_content += f"{i+1}. {acc['username']}:{acc['password']}:{acc['cookies']}\n"
     
+    file_content += "\nJANGAN BAGIKAN DATA INI KEPADA SIAPAPUN !"
+
     file_buffer = io.BytesIO(file_content.encode('utf-8'))
     file_discord = discord.File(fp=file_buffer, filename=f"roblox_accounts_{int(datetime.datetime.now().timestamp())}.txt")
 
@@ -493,6 +503,11 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
 
     with open(bot.db_file, "w") as f:
         json.dump(accounts, f, indent=4)
+
+    # UPDATE COUNTER TERJUAL
+    config["total_sold"] = config.get("total_sold", 0) + jumlah
+    with open(bot.config_file, "w") as f:
+        json.dump(config, f, indent=4)
 
     sisa_stok = len([a for a in accounts if a["status"] == "available" and a.get("seller") == target_seller])
     
