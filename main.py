@@ -102,26 +102,17 @@ class RobloxStoreBot(commands.Bot):
 
 bot = RobloxStoreBot()
 
-# ================= HELPER VALIDASI USERNAME (DIPERBAIKI) =================
 def get_seller_name(user_id, config):
-    """Ngecek apakah ID Discord user ini terdaftar sebagai penjual"""
-    # Ubah ke string semua biar ga error tipe data
     s_id = str(user_id)
-    if config.get("seller_mcrypt_id") and s_id == str(config["seller_mcrypt_id"]):
-        return "Mcrypt"
-    if config.get("seller_bx_id") and s_id == str(config["seller_bx_id"]):
-        return "Bx"
-    if config.get("seller_ame_id") and s_id == str(config["seller_ame_id"]):
-        return "Ame"
+    if config.get("seller_mcrypt_id") and s_id == str(config["seller_mcrypt_id"]): return "Mcrypt"
+    if config.get("seller_bx_id") and s_id == str(config["seller_bx_id"]): return "Bx"
+    if config.get("seller_ame_id") and s_id == str(config["seller_ame_id"]): return "Ame"
     return None
 
 def is_owner(user_id, config):
-    """Cek apakah user ini owner (Anti error string/int)"""
-    if not config.get("owner_id"):
-        return False
+    if not config.get("owner_id"): return False
     return str(user_id) == str(config["owner_id"])
 
-# ================= FORM TUTUP TIKET =================
 class CloseTicketModal(discord.ui.Modal, title="Tutup Tiket"):
     reason = discord.ui.TextInput(
         label="Alasan Penutupan",
@@ -148,7 +139,6 @@ class CloseTicketModal(discord.ui.Modal, title="Tutup Tiket"):
 
         await interaction.channel.delete()
 
-# ================= TOMBOL TUTUP TIKET =================
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -159,13 +149,11 @@ class TicketView(discord.ui.View):
             config = json.load(f)
             
         penjual = get_seller_name(interaction.user.id, config)
-        
         if not penjual and not is_owner(interaction.user.id, config):
             return await interaction.response.send_message("🚫 Hanya Admin/Penjual yang bisa menutup tiket ini.", ephemeral=True)
         
         await interaction.response.send_modal(CloseTicketModal())
 
-# ================= FORM PEMBELIAN =================
 class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
     jumlah = discord.ui.TextInput(
         label="Jumlah Akun",
@@ -271,7 +259,6 @@ class PanelView(discord.ui.View):
     async def beli_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BeliModal())
 
-# ================= FORM INPUT AKUN (BULK) =================
 class InputAkunModal(discord.ui.Modal, title="Input Akun Roblox"):
     penjual = discord.ui.TextInput(
         label="Nama Penjual",
@@ -345,9 +332,6 @@ class InputAkunModal(discord.ui.Modal, title="Input Akun Roblox"):
         embed.add_field(name="✅ Berhasil", value=f"{sukses}", inline=True)
         embed.add_field(name="❌ Gagal", value=f"{gagal}", inline=True)
         embed.add_field(name="👤 Penjual", value=nama_penjual, inline=True)
-        embed.add_field(name="📦 Stok M.Crypt", value=str(stok_mcrypt), inline=True)
-        embed.add_field(name="📦 Stok Bx", value=str(stok_bx), inline=True)
-        embed.add_field(name="📦 Stok Ame", value=str(stok_ame), inline=True)
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
         await bot.update_panel()
@@ -496,15 +480,13 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
     except discord.Forbidden:
         return await interaction.followup.send(f"❌ Gagal kirim DM ke {user.mention}. Kemungkinan DM tertutup. Akun **tidak di-gift** (stok utuh).", ephemeral=True)
 
-    for acc in accounts:
-        if acc["id"] in [a["id"] for a in to_gift]:
-            acc["status"] = "gifted"
-            acc["buyer"] = str(user.id)
-            acc["reason"] = reason
-            acc["gifted_at"] = str(datetime.datetime.now())
+    # --- FITUR BARU: HAPUS AKUN DARI DATABASE SETELAH DI-GIFT ---
+    gifted_ids = [a["id"] for a in to_gift]
+    accounts = [a for a in accounts if a["id"] not in gifted_ids] # Filter, buang akun yang udah di-gift
 
     with open(bot.db_file, "w") as f:
         json.dump(accounts, f, indent=4)
+    # -----------------------------------------------------------
 
     sisa_stok = len([a for a in accounts if a["status"] == "available" and a.get("seller") == target_seller])
     res_embed = discord.Embed(title="✅ Gift Berhasil", color=0x2ecc71)
