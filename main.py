@@ -77,7 +77,14 @@ class RobloxStoreBot(commands.Bot):
         
         embed = discord.Embed(
             title="📦 **Informasi Stock Cookies Roblox**",
-            description="*Cek ketersediaan akun per penjual secara realtime!*",
+            description=(
+                "⚠️ **BACA SEBELUM MEMBELI!**\n"
+                "• Akun cookies buatan sendiri.\n"
+                "• 100% data polosan.\n"
+                "• Akun cookies tidak reg global.\n"
+                "• Privasi 100% terjaga dan diatur oleh sistem End to delete.\n\n"
+                "Silakan pahami terlebih dahulu sebelum melakukan pembelian!"
+            ),
             color=0x5865F2 
         )
             
@@ -113,7 +120,12 @@ def is_owner(user_id, config):
     if not config.get("owner_id"): return False
     return str(user_id) == str(config["owner_id"])
 
-# ================= FORM TUTUP TIKET =================
+def format_harga(harga):
+    if harga >= 1000:
+        formatted = f"{harga / 1000:.1f}".replace(".0", "")
+        return f"{formatted}K"
+    return str(harga)
+
 class CloseTicketModal(discord.ui.Modal, title="Tutup Tiket"):
     reason = discord.ui.TextInput(
         label="Alasan Penutupan",
@@ -140,7 +152,6 @@ class CloseTicketModal(discord.ui.Modal, title="Tutup Tiket"):
 
         await interaction.channel.delete()
 
-# ================= TOMBOL TUTUP TIKET =================
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -156,7 +167,6 @@ class TicketView(discord.ui.View):
         
         await interaction.response.send_modal(CloseTicketModal())
 
-# ================= FORM PEMBELIAN =================
 class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
     jumlah = discord.ui.TextInput(
         label="Jumlah Akun",
@@ -236,7 +246,7 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian Akun Roblox"):
             title="🧾 Tiket Pembelian",
             description=f"Halo {buyer.mention}, terima kasih sudah memesan!\n\n"
                         f"📦 **Jumlah:** {jumlah_beli} Akun\n"
-                        f"💰 **Total Harga:** {jumlah_beli * HARGA_PER_AKUN} Perak\n\n"
+                        f"💰 **Total Harga:** {format_harga(jumlah_beli * HARGA_PER_AKUN)} Perak\n\n"
                         f"Silakan tunggu Admin/Penjual untuk memproses pesananmu.",
             color=0x2ecc71
         )
@@ -350,7 +360,6 @@ async def tutup_tiket(interaction: discord.Interaction):
 
     await interaction.response.send_modal(CloseTicketModal())
 
-# ================= COMMAND INPUT AKUN VIA FILE TXT =================
 @bot.tree.command(name="inputakun", description="Tambah akun Roblox via File .txt")
 @app_commands.describe(
     penjual="Pilih penjual",
@@ -374,13 +383,11 @@ async def input_akun_file(interaction: discord.Interaction, penjual: app_command
     if not owner_check and user_seller != penjual.value:
         return await interaction.response.send_message(f"❌ Kamu terdaftar sebagai {user_seller}, gabisa input ke stok {penjual.value}!", ephemeral=True)
 
-    # Pastiin filenya .txt
     if not file.filename.endswith(".txt"):
         return await interaction.response.send_message("❌ Gagal! File harus berekstensi .txt", ephemeral=True)
 
     await interaction.response.defer(ephemeral=True)
 
-    # Baca isi file
     file_content = await file.read()
     text = file_content.decode('utf-8')
 
@@ -392,12 +399,11 @@ async def input_akun_file(interaction: discord.Interaction, penjual: app_command
     with open(bot.db_file, "r") as f:
         accounts = json.load(f)
 
-    # Simpen list username yang udah ada buat cek duplikat
     existing_usernames = {acc["username"].lower() for acc in accounts if acc.get("seller") == penjual.value}
 
     for line in lines:
         line = line.strip()
-        if not line: continue # Skip baris kosong
+        if not line: continue
         
         parts = line.split(":")
         if len(parts) < 3:
@@ -408,10 +414,9 @@ async def input_akun_file(interaction: discord.Interaction, penjual: app_command
         password = parts[1].strip()
         cookies = ":".join(parts[2:]).strip()
 
-        # --- FITUR ANTI DUPLIKAT ---
         if username.lower() in existing_usernames:
             duplikat += 1
-            continue # Skip, jangan masukin
+            continue
 
         accounts.append({
             "id": len(accounts) + 1,
@@ -425,7 +430,7 @@ async def input_akun_file(interaction: discord.Interaction, penjual: app_command
             "gifted_at": None
         })
         
-        existing_usernames.add(username.lower()) # Tambahin ke list biar ga dobel di file yang sama
+        existing_usernames.add(username.lower())
         sukses += 1
 
     with open(bot.db_file, "w") as f:
@@ -450,7 +455,7 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
     if not penjual and not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Kamu tidak punya akses untuk gift akun.", ephemeral=True)
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
 
     with open(bot.db_file, "r") as f:
         accounts = json.load(f)
@@ -460,7 +465,7 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
     available_accs = [a for a in accounts if a["status"] == "available" and a.get("seller") == target_seller]
     
     if len(available_accs) < jumlah:
-        return await interaction.followup.send(f"❌ Stok kamu ({target_seller}) tidak cukup. Tersedia: **{len(available_accs)}**, diminta: **{jumlah}**", ephemeral=True)
+        return await interaction.followup.send(f"❌ Stok kamu ({target_seller}) tidak cukup. Tersedia: **{len(available_accs)}**, diminta: **{jumlah}**")
 
     to_gift = available_accs[:jumlah]
     
@@ -481,9 +486,8 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
     try:
         await user.send(embed=dm_embed, file=file_discord)
     except discord.Forbidden:
-        return await interaction.followup.send(f"❌ Gagal kirim DM ke {user.mention}. Kemungkinan DM tertutup. Akun **tidak di-gift** (stok utuh).", ephemeral=True)
+        return await interaction.followup.send(f"❌ Gagal kirim DM ke {user.mention}. Kemungkinan DM tertutup. Akun **tidak di-gift** (stok utuh).")
 
-    # Hapus akun dari database setelah di-gift
     gifted_ids = [a["id"] for a in to_gift]
     accounts = [a for a in accounts if a["id"] not in gifted_ids]
 
@@ -491,13 +495,14 @@ async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah
         json.dump(accounts, f, indent=4)
 
     sisa_stok = len([a for a in accounts if a["status"] == "available" and a.get("seller") == target_seller])
+    
     res_embed = discord.Embed(title="✅ Gift Berhasil", color=0x2ecc71)
     res_embed.add_field(name="Penjual", value=target_seller, inline=True)
     res_embed.add_field(name="Penerima", value=user.mention, inline=True)
     res_embed.add_field(name="Jumlah", value=str(jumlah), inline=True)
     res_embed.add_field(name="Sisa Stok", value=str(sisa_stok), inline=True)
     
-    await interaction.followup.send(embed=res_embed, ephemeral=True)
+    await interaction.followup.send(embed=res_embed)
     await bot.update_panel()
 
 if __name__ == "__main__":
