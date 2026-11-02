@@ -17,35 +17,22 @@ class RobloxStoreBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=discord.Intents.all(), help_command=None)
         self.db_file = "accounts.json"
-        self.hold_file = "holder_accounts.json" # File khusus akun hold
+        self.hold_file = "holder_accounts.json"
         self.config_file = "config.json"
 
     async def setup_hook(self):
-        # File Database Akun Biasa (Indo)
-        if not os.path.exists(self.db_file):
-            with open(self.db_file, "w") as f:
-                json.dump([], f)
+        for f_name, default_data in [(self.db_file, []), (self.hold_file, [])]:
+            if not os.path.exists(f_name):
+                with open(f_name, "w") as f:
+                    json.dump(default_data, f)
                 
-        # File Database Akun Holder (Global)
-        if not os.path.exists(self.hold_file):
-            with open(self.hold_file, "w") as f:
-                json.dump([], f)
-                
-        # File Config
         if not os.path.exists(self.config_file):
             with open(self.config_file, "w") as f:
                 json.dump({
-                    "owner_id": None,
-                    "buyer_role_id": None,
-                    "panel_channel_id": None, 
-                    "panel_hold_channel_id": None, # ID Channel Holder Baru
-                    "role_locked": False,
-                    "ticket_count": 0,
-                    "seller_mcrypt_id": None,
-                    "seller_bx_id": None,
-                    "seller_ame_id": None,
-                    "total_sold": 0,
-                    "total_sold_hold": 0
+                    "owner_id": None, "buyer_role_id": None, "panel_channel_id": None, 
+                    "panel_hold_channel_id": None, "role_locked": False, "ticket_count": 0,
+                    "seller_mcrypt_id": None, "seller_bx_id": None, "seller_ame_id": None,
+                    "total_sold": 0, "total_sold_hold": 0
                 }, f, indent=4)
 
         bot.add_view(PanelView())
@@ -64,10 +51,8 @@ class RobloxStoreBot(commands.Bot):
         await self.update_panel_hold()
 
     async def update_panel(self):
-        # --- PANEL LAMA (INDONESIA) ---
         with open(self.config_file, "r") as f:
             config = json.load(f)
-            
         channel_id = config.get("panel_channel_id")
         if not channel_id: return
         channel = self.get_channel(int(channel_id))
@@ -99,7 +84,6 @@ class RobloxStoreBot(commands.Bot):
             ),
             color=0x5865F2 
         )
-            
         embed.add_field(name="👤 **M.Crypt**", value=f"```fix\n{stok_mcrypt} Akun\n```", inline=True)
         embed.add_field(name="👤 **Bx**", value=f"```fix\n{stok_bx} Akun\n```", inline=True)
         embed.add_field(name="👤 **Ame**", value=f"```fix\n{stok_ame} Akun\n```", inline=True)
@@ -111,7 +95,6 @@ class RobloxStoreBot(commands.Bot):
         embed.timestamp = now_wib
 
         view = PanelView()
-
         async for msg in channel.history(limit=20):
             if msg.author.id == self.user.id and msg.embeds and "Informasi Stock Cookies Roblox (Reg Indo)" in msg.embeds[0].title:
                 await msg.edit(embed=embed, view=view)
@@ -119,10 +102,8 @@ class RobloxStoreBot(commands.Bot):
         await channel.send(embed=embed, view=view)
 
     async def update_panel_hold(self):
-        # --- PANEL BARU (HOLDER GLOBAL) ---
         with open(self.config_file, "r") as f:
             config = json.load(f)
-            
         channel_id = config.get("panel_hold_channel_id")
         if not channel_id: return
         channel = self.get_channel(int(channel_id))
@@ -131,40 +112,36 @@ class RobloxStoreBot(commands.Bot):
         with open(self.hold_file, "r") as f:
             hold_accounts = json.load(f)
             
-        # Kelompokkan akun berdasarkan umur (hari)
         groups = {}
-        total_stok = 0
+        total_stok_siap = 0 
         now_ts = time.time()
 
         for acc in hold_accounts:
             if acc["status"] == "available":
-                total_stok += 1
-                # Hitung umur dalam hari
                 umur_hari = int((now_ts - acc["timestamp"]) / 86400)
                 umur_menit = int((now_ts - acc["timestamp"]) / 60)
-                
-                # Harga naik 40 per hari, max 840
                 harga_sekarang = min(40 + (umur_hari * 40), 840)
                 
-                # Bikin label
-                if umur_hari > 0:
-                    label = f"**{umur_hari} hari** | R{harga_sekarang}"
+                if umur_hari >= 21:
+                    total_stok_siap += 1
+                    label = f"🔥 **SIAP BELI** | {umur_hari} hari | R{harga_sekarang}"
                 else:
-                    label = f"**{umur_menit} menit lalu** | R{harga_sekarang}"
+                    if umur_hari > 0:
+                        label = f"⏳ {umur_hari} hari | R{harga_sekarang}"
+                    else:
+                        label = f"⏳ {umur_menit} menit lalu | R{harga_sekarang}"
 
-                # Kelompokkan berdasarkan harga/umur biar rapi
-                key = label
-                if key not in groups:
-                    groups[key] = 0
-                groups[key] += 1
+                if label not in groups:
+                    groups[label] = 0
+                groups[label] += 1
 
-        # Bikin list info stok
         info_stok = ""
         if not groups:
             info_stok = "❌ Belum ada akun holder yang tersedia."
         else:
-            for label, count in groups.items():
-                info_stok += f"• {count} Acc baru hold {label}\n"
+            sorted_groups = dict(sorted(groups.items(), key=lambda item: "SIAP" in item[0], reverse=True))
+            for label, count in sorted_groups.items():
+                info_stok += f"• {count} Acc hold {label}\n"
 
         now_wib = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
         hari_str = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][now_wib.weekday()]
@@ -174,24 +151,20 @@ class RobloxStoreBot(commands.Bot):
             title="🌍 **Informasi Stock Cookies Roblox (Holder Global)**",
             description=(
                 "⚠️ **BACA SEBELUM MEMBELI!**\n"
-                "• Akun cookies REG GLOBAL + Sistem HOLD.\n"
-                "• Jangka waktu hold minimal **3 Minggu (21 Hari)**.\n"
-                "• Harga akan naik otomatis setiap hari (Mulai R40 -> Max R840).\n"
-                "• Akun tidak bisa di-gift sebelum masa hold selesai.\n\n"
+                "• Akun cookies REG GLOBAL + HOLD 3 Minggu.\n"
+                "• Rate 840 Perak / Account**.\n"
+                "• Order ? Klik Beli tombol dibawah !.\n\n"
                 "Silakan pahami terlebih dahulu sebelum melakukan pembelian!"
             ),
-            color=0xE74C3C # Warna merah biar beda
+            color=0xE74C3C 
         )
-        
-        embed.add_field(name="📊 **Total Stok Hold**", value=f"`{total_stok} Akun`", inline=False)
-        embed.add_field(name="📦 **Rincian Stok (Umur & Harga)**", value=info_stok, inline=False)
-        
+        embed.add_field(name="📊 **Total Stok Siap Beli**", value=f"`{total_stok_siap} Akun`", inline=False)
+        embed.add_field(name="📦 **Rincian Stok (Monitor)**", value=info_stok, inline=False)
         embed.add_field(name="🕒 **Update**", value=f"`{waktu_sekarang}`", inline=False)
         embed.set_footer(text="Klik tombol di bawah untuk membeli.", icon_url=self.user.display_avatar.url)
         embed.timestamp = now_wib
 
         view = PanelHoldView()
-
         async for msg in channel.history(limit=20):
             if msg.author.id == self.user.id and msg.embeds and "Informasi Stock Cookies Roblox (Holder Global)" in msg.embeds[0].title:
                 await msg.edit(embed=embed, view=view)
@@ -217,7 +190,6 @@ def format_harga(harga):
         return f"{formatted}K"
     return str(harga)
 
-# ================= TUTUP TIKET =================
 class CloseTicketModal(discord.ui.Modal, title="Tutup Tiket"):
     reason = discord.ui.TextInput(
         label="Alasan Penutupan",
@@ -229,19 +201,15 @@ class CloseTicketModal(discord.ui.Modal, title="Tutup Tiket"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.send_message("🔒 Menutup tiket...", ephemeral=True)
         await asyncio.sleep(2)
-        
         buyer = None
         for target, overwrite in interaction.channel.overwrites.items():
             if isinstance(target, discord.Member) and not target.bot and target.id != interaction.user.id:
                  buyer = target
                  break
-
         if buyer:
             try:
                 await buyer.send(f"🔒 **Tiket Ditutup**\n\nAlasan: {self.reason.value}")
-            except:
-                pass
-
+            except: pass
         await interaction.channel.delete()
 
 class TicketView(discord.ui.View):
@@ -252,14 +220,11 @@ class TicketView(discord.ui.View):
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         with open(bot.config_file, "r") as f:
             config = json.load(f)
-            
         penjual = get_seller_name(interaction.user.id, config)
         if not penjual and not is_owner(interaction.user.id, config):
             return await interaction.response.send_message("🚫 Hanya Admin/Penjual yang bisa menutup tiket ini.", ephemeral=True)
-        
         await interaction.response.send_modal(CloseTicketModal())
 
-# ================= BELI BIASA =================
 class BeliModal(discord.ui.Modal, title="Form Pembelian (Reg Indo)"):
     jumlah = discord.ui.TextInput(label="Jumlah Akun", placeholder="Contoh: 1", required=True)
 
@@ -267,7 +232,6 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian (Reg Indo)"):
         if not self.jumlah.value.isdigit() or int(self.jumlah.value) <= 0:
             return await interaction.response.send_message("❌ Gagal! Masukkan angka yang valid.", ephemeral=True)
         jumlah_beli = int(self.jumlah.value)
-
         guild = interaction.guild
         buyer = interaction.user
 
@@ -290,7 +254,6 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian (Reg Indo)"):
         with open(bot.config_file, "r") as f:
             config = json.load(f)
         buyer_role_id = config.get("buyer_role_id")
-        
         ticket_count = config.get("ticket_count", 0) + 1
         config["ticket_count"] = ticket_count
         with open(bot.config_file, "w") as f:
@@ -329,7 +292,6 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian (Reg Indo)"):
             await interaction.followup.send(content=f"✅ Tiket dibuat: <#{ticket_channel.id}>", ephemeral=True, delete_after=60.0)
         except: pass
 
-# ================= BELI HOLDER =================
 class BeliHoldModal(discord.ui.Modal, title="Form Pembelian (Holder Global)"):
     jumlah = discord.ui.TextInput(label="Jumlah Akun", placeholder="Contoh: 1", required=True)
 
@@ -337,7 +299,6 @@ class BeliHoldModal(discord.ui.Modal, title="Form Pembelian (Holder Global)"):
         if not self.jumlah.value.isdigit() or int(self.jumlah.value) <= 0:
             return await interaction.response.send_message("❌ Gagal! Masukkan angka yang valid.", ephemeral=True)
         jumlah_beli = int(self.jumlah.value)
-
         guild = interaction.guild
         buyer = interaction.user
 
@@ -351,16 +312,23 @@ class BeliHoldModal(discord.ui.Modal, title="Form Pembelian (Holder Global)"):
 
         with open(bot.hold_file, "r") as f:
             accounts = json.load(f)
-        stok_tersedia = len([a for a in accounts if a["status"] == "available"])
-        if jumlah_beli > stok_tersedia:
-            return await interaction.response.send_message(f"❌ Stok tidak cukup. Sisa: **{stok_tersedia}**", ephemeral=True)
+        
+        now_ts = time.time()
+        stok_siap = 0
+        for a in accounts:
+            if a["status"] == "available":
+                umur_hari = int((now_ts - a["timestamp"]) / 86400)
+                if umur_hari >= 21:
+                    stok_siap += 1
+                    
+        if jumlah_beli > stok_siap:
+            return await interaction.response.send_message(f"❌ Stok akun holder yang sudah siap (21 hari) tidak cukup. Sisa: **{stok_siap}**", ephemeral=True)
 
         await interaction.response.send_message("⏳ Memproses tiket...", ephemeral=True)
 
         with open(bot.config_file, "r") as f:
             config = json.load(f)
         buyer_role_id = config.get("buyer_role_id")
-        
         ticket_count = config.get("ticket_count", 0) + 1
         config["ticket_count"] = ticket_count
         with open(bot.config_file, "w") as f:
@@ -399,7 +367,6 @@ class BeliHoldModal(discord.ui.Modal, title="Form Pembelian (Holder Global)"):
             await interaction.followup.send(content=f"✅ Tiket dibuat: <#{ticket_channel.id}>", ephemeral=True, delete_after=60.0)
         except: pass
 
-# ================= VIEWS =================
 class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -415,21 +382,15 @@ class PanelHoldView(discord.ui.View):
     @discord.ui.button(label="Beli (Holder Global)", emoji="🌍", style=discord.ButtonStyle.primary, custom_id="beli_hold_btn")
     async def beli_hold_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BeliHoldModal())
-
-# ================= COMMANDS =================
-
 @bot.tree.command(name="setup", description="Set ADMIN/OWNER (HANYA BISA DILAKUKAN SEKALI)")
 @app_commands.describe(user="Tag user yang jadi Owner/Admin utama")
 async def setup_owner(interaction: discord.Interaction, user: discord.User):
     if not interaction.user.guild_permissions.administrator:
         return await interaction.response.send_message("🚫 Hanya Administrator server yang bisa melakukan setup awal.", ephemeral=True)
-
     with open(bot.config_file, "r") as f:
         config = json.load(f)
-
     if config["role_locked"]:
-        return await interaction.response.send_message("🔒 Owner sudah di-set sebelumnya dan **tidak bisa diubah lagi**.", ephemeral=True)
-
+        return await interaction.response.send_message("🔒 Owner sudah di-set sebelumnya.", ephemeral=True)
     config["owner_id"] = user.id
     config["role_locked"] = True
     with open(bot.config_file, "w") as f:
@@ -448,7 +409,6 @@ async def set_seller(interaction: discord.Interaction, penjual: app_commands.Cho
         config = json.load(f)
     if not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya Owner yang bisa melakukan setup penjual.", ephemeral=True)
-
     config[penjual.value] = user.id
     with open(bot.config_file, "w") as f:
         json.dump(config, f, indent=4)
@@ -461,7 +421,6 @@ async def set_role_buyer(interaction: discord.Interaction, role: discord.Role):
         config = json.load(f)
     if not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya Owner yang bisa set role buyer.", ephemeral=True)
-
     config["buyer_role_id"] = role.id
     with open(bot.config_file, "w") as f:
         json.dump(config, f, indent=4)
@@ -474,7 +433,6 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
         config = json.load(f)
     if not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya Owner yang bisa set channel.", ephemeral=True)
-        
     config["panel_channel_id"] = channel.id
     with open(bot.config_file, "w") as f:
         json.dump(config, f, indent=4)
@@ -488,7 +446,6 @@ async def set_channel_hold(interaction: discord.Interaction, channel: discord.Te
         config = json.load(f)
     if not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya Owner yang bisa set channel holder.", ephemeral=True)
-        
     config["panel_hold_channel_id"] = channel.id
     with open(bot.config_file, "w") as f:
         json.dump(config, f, indent=4)
@@ -499,17 +456,13 @@ async def set_channel_hold(interaction: discord.Interaction, channel: discord.Te
 async def tutup_tiket(interaction: discord.Interaction):
     if not (interaction.channel.name.startswith("buy-cookies-") or interaction.channel.name.startswith("buy-holder-")):
         return await interaction.response.send_message("❌ Command ini hanya bisa dipakai di dalam channel tiket.", ephemeral=True)
-
     with open(bot.config_file, "r") as f:
         config = json.load(f)
     penjual = get_seller_name(interaction.user.id, config)
-
     if not penjual and not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Hanya penjual/owner yang bisa menutup tiket.", ephemeral=True)
-
     await interaction.response.send_modal(CloseTicketModal())
 
-# ================= INPUT AKUN BIASA =================
 @bot.tree.command(name="inputakun", description="Tambah akun Roblox (Reg Indo) via File .txt")
 @app_commands.describe(penjual="Pilih penjual", file="Upload file .txt")
 @app_commands.choices(penjual=[
@@ -522,24 +475,20 @@ async def input_akun_file(interaction: discord.Interaction, penjual: app_command
         config = json.load(f)
     user_seller = get_seller_name(interaction.user.id, config)
     owner_check = is_owner(interaction.user.id, config)
-    
     if not owner_check and not user_seller:
         return await interaction.response.send_message("❌ Kamu bukan penjual yang terdaftar!", ephemeral=True)
     if not owner_check and user_seller != penjual.value:
         return await interaction.response.send_message(f"❌ Kamu terdaftar sebagai {user_seller}, gabisa input ke stok {penjual.value}!", ephemeral=True)
     if not file.filename.endswith(".txt"):
         return await interaction.response.send_message("❌ Gagal! File harus berekstensi .txt", ephemeral=True)
-
     await interaction.response.defer(ephemeral=True)
     file_content = await file.read()
     text = file_content.decode('utf-8')
     lines = text.strip().split("\n")
     sukses = 0; gagal = 0; duplikat = 0
-
     with open(bot.db_file, "r") as f:
         accounts = json.load(f)
     existing_usernames = {acc["username"].lower() for acc in accounts if acc.get("seller") == penjual.value}
-
     for line in lines:
         line = line.strip()
         if not line: continue
@@ -550,21 +499,17 @@ async def input_akun_file(interaction: discord.Interaction, penjual: app_command
         username = parts[0].strip()
         password = parts[1].strip()
         cookies = ":".join(parts[2:]).strip()
-
         if username.lower() in existing_usernames:
             duplikat += 1
             continue
-
         accounts.append({
             "id": len(accounts) + 1, "username": username, "password": password, "cookies": cookies,
             "status": "available", "seller": penjual.value, "buyer": None, "reason": None, "gifted_at": None
         })
         existing_usernames.add(username.lower())
         sukses += 1
-
     with open(bot.db_file, "w") as f:
         json.dump(accounts, f, indent=4)
-
     embed = discord.Embed(title=f"📥 Input Akun {penjual.value} (Indo) Selesai", color=0x2ecc71)
     embed.add_field(name="✅ Berhasil", value=f"{sukses}", inline=True)
     embed.add_field(name="❌ Gagal Format", value=f"{gagal}", inline=True)
@@ -572,7 +517,6 @@ async def input_akun_file(interaction: discord.Interaction, penjual: app_command
     await interaction.followup.send(embed=embed, ephemeral=True)
     await bot.update_panel()
 
-# ================= INPUT AKUN HOLDER =================
 @bot.tree.command(name="inputakunholder", description="Tambah akun Roblox (Holder Global) via File .txt")
 @app_commands.describe(penjual="Pilih penjual", file="Upload file .txt")
 @app_commands.choices(penjual=[
@@ -585,26 +529,21 @@ async def input_akun_holder_file(interaction: discord.Interaction, penjual: app_
         config = json.load(f)
     user_seller = get_seller_name(interaction.user.id, config)
     owner_check = is_owner(interaction.user.id, config)
-    
     if not owner_check and not user_seller:
         return await interaction.response.send_message("❌ Kamu bukan penjual yang terdaftar!", ephemeral=True)
     if not owner_check and user_seller != penjual.value:
         return await interaction.response.send_message(f"❌ Kamu terdaftar sebagai {user_seller}, gabisa input ke stok {penjual.value}!", ephemeral=True)
     if not file.filename.endswith(".txt"):
         return await interaction.response.send_message("❌ Gagal! File harus berekstensi .txt", ephemeral=True)
-
     await interaction.response.defer(ephemeral=True)
     file_content = await file.read()
     text = file_content.decode('utf-8')
     lines = text.strip().split("\n")
     sukses = 0; gagal = 0; duplikat = 0
-
     with open(bot.hold_file, "r") as f:
         accounts = json.load(f)
     existing_usernames = {acc["username"].lower() for acc in accounts}
-
     now_ts = time.time()
-
     for line in lines:
         line = line.strip()
         if not line: continue
@@ -615,29 +554,18 @@ async def input_akun_holder_file(interaction: discord.Interaction, penjual: app_
         username = parts[0].strip()
         password = parts[1].strip()
         cookies = ":".join(parts[2:]).strip()
-
         if username.lower() in existing_usernames:
             duplikat += 1
             continue
-
         accounts.append({
-            "id": len(accounts) + 1, 
-            "username": username, 
-            "password": password, 
-            "cookies": cookies,
-            "status": "available", 
-            "seller": penjual.value, 
-            "buyer": None, 
-            "reason": None, 
-            "gifted_at": None,
-            "timestamp": now_ts # <--- Kunci Waktu Dimulai
+            "id": len(accounts) + 1, "username": username, "password": password, "cookies": cookies,
+            "status": "available", "seller": penjual.value, "buyer": None, "reason": None, "gifted_at": None,
+            "timestamp": now_ts
         })
         existing_usernames.add(username.lower())
         sukses += 1
-
     with open(bot.hold_file, "w") as f:
         json.dump(accounts, f, indent=4)
-
     embed = discord.Embed(title=f"📥 Input Akun {penjual.value} (Holder) Selesai", color=0x2ecc71)
     embed.add_field(name="✅ Berhasil", value=f"{sukses}", inline=True)
     embed.add_field(name="❌ Gagal Format", value=f"{gagal}", inline=True)
@@ -645,139 +573,103 @@ async def input_akun_holder_file(interaction: discord.Interaction, penjual: app_
     await interaction.followup.send(embed=embed, ephemeral=True)
     await bot.update_panel_hold()
 
-# ================= GIFT AKUN BIASA =================
 @bot.tree.command(name="giftakun", description="Kirim akun (Reg Indo) ke pembeli via DM")
 @app_commands.describe(user="Pembeli", jumlah="Jumlah akun", reason="Order ID")
 async def gift_akun(interaction: discord.Interaction, user: discord.User, jumlah: int, reason: str):
     with open(bot.config_file, "r") as f:
         config = json.load(f)
     penjual = get_seller_name(interaction.user.id, config)
-
     if not penjual and not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Kamu tidak punya akses untuk gift akun.", ephemeral=True)
-
     await interaction.response.defer(ephemeral=False)
-
     with open(bot.db_file, "r") as f:
         accounts = json.load(f)
-
     target_seller = penjual if penjual else "Mcrypt"
     available_accs = [a for a in accounts if a["status"] == "available" and a.get("seller") == target_seller]
-    
     if len(available_accs) < jumlah:
         return await interaction.followup.send(f"❌ Stok kamu ({target_seller}) tidak cukup. Tersedia: **{len(available_accs)}**")
-
     to_gift = available_accs[:jumlah]
-    
     file_content = "INFO USN:PW:COOKIES\n"
     for i, acc in enumerate(to_gift):
         file_content += f"{acc['username']}:{acc['password']}:{acc['cookies']}\n"
     file_content += "\nJANGAN BAGIKAN DATA INI KEPADA SIAPAPUN !"
-
     file_buffer = io.BytesIO(file_content.encode('utf-8'))
     file_discord = discord.File(fp=file_buffer, filename=f"roblox_accounts_{int(datetime.datetime.now().timestamp())}.txt")
-
     dm_embed = discord.Embed(
         title="🎁 Pesanan Akun Roblox Kamu",
         description=f"Terima kasih sudah membeli!\n\n📦 **Jumlah**: {jumlah} akun\n🧾 **Reason**: {reason}\n\nFile akun terlampir di bawah. **Segera ganti password & jangan bagikan data ini ke siapa pun.**",
         color=0x2ecc71
     )
-    
     try:
         await user.send(embed=dm_embed, file=file_discord)
     except discord.Forbidden:
         return await interaction.followup.send(f"❌ Gagal kirim DM ke {user.mention}. Kemungkinan DM tertutup. Akun **tidak di-gift** (stok utuh).")
-
     gifted_ids = [a["id"] for a in to_gift]
     accounts = [a for a in accounts if a["id"] not in gifted_ids]
-
     with open(bot.db_file, "w") as f:
         json.dump(accounts, f, indent=4)
-
     config["total_sold"] = config.get("total_sold", 0) + jumlah
     with open(bot.config_file, "w") as f:
         json.dump(config, f, indent=4)
-
     sisa_stok = len([a for a in accounts if a["status"] == "available" and a.get("seller") == target_seller])
-    
     res_embed = discord.Embed(title="✅ Gift Berhasil", color=0x2ecc71)
     res_embed.add_field(name="Penjual", value=target_seller, inline=True)
     res_embed.add_field(name="Penerima", value=user.mention, inline=True)
     res_embed.add_field(name="Jumlah", value=str(jumlah), inline=True)
     res_embed.add_field(name="Sisa Stok", value=str(sisa_stok), inline=True)
-    
     await interaction.followup.send(embed=res_embed)
     await bot.update_panel()
 
-# ================= GIFT AKUN HOLDER =================
 @bot.tree.command(name="giftakunhold", description="Kirim akun (Holder Global) ke pembeli via DM")
 @app_commands.describe(user="Pembeli", jumlah="Jumlah akun", reason="Order ID")
 async def gift_akun_hold(interaction: discord.Interaction, user: discord.User, jumlah: int, reason: str):
     with open(bot.config_file, "r") as f:
         config = json.load(f)
     penjual = get_seller_name(interaction.user.id, config)
-
     if not penjual and not is_owner(interaction.user.id, config):
         return await interaction.response.send_message("🚫 Kamu tidak punya akses untuk gift akun.", ephemeral=True)
-
     await interaction.response.defer(ephemeral=False)
-
     with open(bot.hold_file, "r") as f:
         accounts = json.load(f)
-
     now_ts = time.time()
     target_seller = penjual if penjual else "Mcrypt"
-    
-    # Filter akun yang status available DAN udah 21 hari
     available_accs = []
     for a in accounts:
         if a["status"] == "available" and a.get("seller") == target_seller:
             umur_hari = int((now_ts - a["timestamp"]) / 86400)
-            if umur_hari >= 21: # Minimal 3 minggu
+            if umur_hari >= 21:
                 available_accs.append(a)
-
     if len(available_accs) < jumlah:
         return await interaction.followup.send(f"❌ Stok akun hold ({target_seller}) yang sudah 3 minggu cuma ada **{len(available_accs)}**, diminta **{jumlah}**.\n_(Belum bisa di-gift jika belum 21 hari)_")
-
     to_gift = available_accs[:jumlah]
-    
     file_content = "INFO USN:PW:COOKIES (HOLDER GLOBAL)\n"
     for i, acc in enumerate(to_gift):
         file_content += f"{acc['username']}:{acc['password']}:{acc['cookies']}\n"
     file_content += "\nJANGAN BAGIKAN DATA INI KEPADA SIAPAPUN !"
-
     file_buffer = io.BytesIO(file_content.encode('utf-8'))
     file_discord = discord.File(fp=file_buffer, filename=f"roblox_holder_{int(datetime.datetime.now().timestamp())}.txt")
-
     dm_embed = discord.Embed(
         title="🎁 Pesanan Akun Holder Global",
         description=f"Terima kasih sudah membeli!\n\n📦 **Jumlah**: {jumlah} akun\n🧾 **Reason**: {reason}\n\nFile akun terlampir di bawah. **Segera ganti password & jangan bagikan data ini ke siapa pun.**",
         color=0xE74C3C
     )
-    
     try:
         await user.send(embed=dm_embed, file=file_discord)
     except discord.Forbidden:
         return await interaction.followup.send(f"❌ Gagal kirim DM ke {user.mention}. Kemungkinan DM tertutup. Akun **tidak di-gift** (stok utuh).")
-
     gifted_ids = [a["id"] for a in to_gift]
     accounts = [a for a in accounts if a["id"] not in gifted_ids]
-
     with open(bot.hold_file, "w") as f:
         json.dump(accounts, f, indent=4)
-
     config["total_sold_hold"] = config.get("total_sold_hold", 0) + jumlah
     with open(bot.config_file, "w") as f:
         json.dump(config, f, indent=4)
-
     sisa_stok = len([a for a in accounts if a["status"] == "available" and a.get("seller") == target_seller])
-    
     res_embed = discord.Embed(title="✅ Gift Holder Berhasil", color=0xE74C3C)
     res_embed.add_field(name="Penjual", value=target_seller, inline=True)
     res_embed.add_field(name="Penerima", value=user.mention, inline=True)
     res_embed.add_field(name="Jumlah", value=str(jumlah), inline=True)
     res_embed.add_field(name="Sisa Stok", value=str(sisa_stok), inline=True)
-    
     await interaction.followup.send(embed=res_embed)
     await bot.update_panel_hold()
 
