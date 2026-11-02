@@ -10,14 +10,15 @@ import time
 
 # ================= KONFIGURASI =================
 TOKEN = os.getenv("DISCORD_TOKEN") 
-HARGA_PER_AKUN = 170 # Harga Reg Indo & Global
+HARGA_INDO = 170 
+HARGA_GLOBAL = 400 
 # ===============================================
 
 class RobloxStoreBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=discord.Intents.all(), help_command=None)
         self.db_file = "accounts.json"            # Indo
-        self.global_file = "accounts_global.json" # Global (Baru)
+        self.global_file = "accounts_global.json" # Global
         self.hold_file = "holder_accounts.json"   # Hold
         self.config_file = "config.json"
 
@@ -32,7 +33,7 @@ class RobloxStoreBot(commands.Bot):
                 json.dump({
                     "owner_id": None, "buyer_role_id": None, 
                     "panel_channel_id": None, 
-                    "panel_global_channel_id": None, # Baru
+                    "panel_global_channel_id": None,
                     "panel_hold_channel_id": None, 
                     "role_locked": False, "ticket_count": 0,
                     "seller_mcrypt_id": None, "seller_bx_id": None, "seller_ame_id": None,
@@ -40,7 +41,7 @@ class RobloxStoreBot(commands.Bot):
                 }, f, indent=4)
 
         bot.add_view(PanelView())
-        bot.add_view(PanelGlobalView()) # Baru
+        bot.add_view(PanelGlobalView())
         bot.add_view(PanelHoldView())
         await self.tree.sync()
         print("✅ Slash commands disync!")
@@ -95,7 +96,7 @@ class RobloxStoreBot(commands.Bot):
         embed.add_field(name="👤 **Ame**", value=f"```fix\n{stok_ame} Akun\n```", inline=True)
         embed.add_field(name="📊 **Total Stok**", value=f"`{total_stok} Akun`", inline=True)
         embed.add_field(name="📦 **Akun Terjual**", value=f"`{total_sold} Akun`", inline=True)
-        embed.add_field(name="💰 **Harga**", value=f"`{HARGA_PER_AKUN} Perak / Akun`", inline=True)
+        embed.add_field(name="💰 **Harga**", value=f"`{HARGA_INDO} Perak / Akun`", inline=True)
         embed.add_field(name="🕒 **Update**", value=f"`{waktu_sekarang}`", inline=False)
         embed.set_footer(text="Klik tombol di bawah untuk membeli.", icon_url=self.user.display_avatar.url)
         embed.timestamp = now_wib
@@ -146,7 +147,7 @@ class RobloxStoreBot(commands.Bot):
         embed.add_field(name="👤 **Ame**", value=f"```fix\n{stok_ame} Akun\n```", inline=True)
         embed.add_field(name="📊 **Total Stok**", value=f"`{total_stok} Akun`", inline=True)
         embed.add_field(name="📦 **Akun Terjual**", value=f"`{total_sold} Akun`", inline=True)
-        embed.add_field(name="💰 **Harga**", value=f"`{HARGA_PER_AKUN} Perak / Akun`", inline=True)
+        embed.add_field(name="💰 **Harga**", value=f"`{HARGA_GLOBAL} Perak / Akun`", inline=True)
         embed.add_field(name="🕒 **Update**", value=f"`{waktu_sekarang}`", inline=False)
         embed.set_footer(text="Klik tombol di bawah untuk membeli.", icon_url=self.user.display_avatar.url)
         embed.timestamp = now_wib
@@ -339,7 +340,7 @@ class BeliModal(discord.ui.Modal, title="Form Pembelian (Reg Indo)"):
 
         embed_tiket = discord.Embed(
             title="🧾 Tiket Pembelian (Reg Indo)",
-            description=f"Halo {buyer.mention}!\n\n📦 **Jumlah:** {jumlah_beli} Akun\n💰 **Total:** {format_harga(jumlah_beli * HARGA_PER_AKUN)} Perak\n\nSilakan tunggu Admin/Penjual.",
+            description=f"Halo {buyer.mention}!\n\n📦 **Jumlah:** {jumlah_beli} Akun\n💰 **Total:** {format_harga(jumlah_beli * HARGA_INDO)} Perak\n\nSilakan tunggu Admin/Penjual.",
             color=0x2ecc71
         )
         await ticket_channel.send(content=f"{buyer.mention}", embed=embed_tiket, view=TicketView())
@@ -406,7 +407,7 @@ class BeliGlobalModal(discord.ui.Modal, title="Form Pembelian (Reg Global)"):
 
         embed_tiket = discord.Embed(
             title="🧾 Tiket Pembelian (Reg Global)",
-            description=f"Halo {buyer.mention}!\n\n📦 **Jumlah:** {jumlah_beli} Akun\n💰 **Total:** {format_harga(jumlah_beli * HARGA_PER_AKUN)} Perak\n\nSilakan tunggu Admin/Penjual.",
+            description=f"Halo {buyer.mention}!\n\n📦 **Jumlah:** {jumlah_beli} Akun\n💰 **Total:** {format_harga(jumlah_beli * HARGA_GLOBAL)} Perak\n\nSilakan tunggu Admin/Penjual.",
             color=0x2ecc71
         )
         await ticket_channel.send(content=f"{buyer.mention}", embed=embed_tiket, view=TicketView())
